@@ -1,0 +1,5 @@
+alchemyIPs:
+  alchemy-staging:
+    us-west-2:
+    - 35.83.2.119/32
+    - 52.24.151.88/32

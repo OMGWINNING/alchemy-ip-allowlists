@@ -1,0 +1,125 @@
+alchemyIPs:
+  cloudflare-warp:
+    all:
+      - 104.30.133.21/32   # Primary - Reston, VA (US)
+      - 104.30.134.87/32   # Secondary - Portland, OR (US)
+      - 104.30.160.235/32  # Primary - Romania (EU)
+      - 104.30.160.236/32  # Secondary - Winterthur, Switzerland (EU)
+      - 52.78.217.6/32     # temporary - AWS NAT GW PoC staging APNE2
+      - 15.165.103.11/32   # temporary - AWS NAT GW PoC staging APNE2
+      - 52.78.104.141/32   # temporary - AWS NAT GW PoC staging APNE2
+      - 43.201.212.8/32    # temporary - AWS EIP EP staging APNE2
+      - 13.124.201.11/32   # temporary - AWS EIP EP staging APNE2
+      - 43.201.195.182/32  # temporary - AWS EIP EP staging APNE2
+      - 3.34.20.238/32     # temporary - AWS EIP EP staging APNE2
+      - 54.116.113.2/32    # temporary - AWS EIP EP staging APNE2
+      - 43.200.13.77/32    # temporary - AWS EIP EP staging APNE2
+      - 64.110.84.122/32   # temporary - OCI public IPs staging APNE2
+      - 132.226.228.201/32 # temporary - OCI public IPs staging APNE2
+      - 217.142.136.4/32   # temporary - OCI public IPs staging APNE2
+      - 129.154.215.197/32 # temporary - OCI public IPs staging APNE2
+      - 132.145.88.116/32  # temporary - OCI public IPs staging APNE2
+      - 132.145.88.136/32  # temporary - OCI public IPs staging APNE2
+      - 132.145.89.35/32   # temporary - OCI public IPs staging APNE2
+      - 146.56.170.12/32   # temporary - OCI public IPs staging APNE2
+      - 146.56.186.208/32  # temporary - OCI public IPs staging APNE2
+      - 161.118.128.141/32 # temporary - OCI public IPs staging APNE2
+      - 161.118.146.207/32 # temporary - OCI public IPs staging APNE2
+      - 193.123.243.178/32 # temporary - OCI public IPs staging APNE2
+      - 132.226.235.149/32 # temporary - OCI public IPs staging APNE2
+      - 140.238.13.63/32   # temporary - OCI public IPs staging APNE2
+      - 132.145.81.217/32  # temporary - OCI public IPs staging APNE2
+      - 193.123.228.22/32  # temporary - OCI public IPs staging APNE2
+      - 136.243.74.62/32   # sui testnet bridge server
+      - 52.29.145.190/32   # NAT Bware EUC1 EKS ops cluster
+      - 35.157.51.181/32   # NAT Bware EUC1 EKS ops cluster
+      - 52.59.131.12/32    # NAT Bware EUC1 EKS ops cluster
+      - 202.8.11.157/32    # Solana Singapore Validator
+      - 63.254.162.131/32  # rpc_node-arbitrum-sepolia-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.132/32  # rpc_node-matic-amoy-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.133/32  # rpc_node-matic-amoy-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.134/32  # rpcnode-base-mainnet-archive-prod-nodeserver-tsw-apne1-01
+      - 63.254.162.135/32  # rpcnode-base-mainnet-archive-prod-nodeserver-tsw-apne1-02
+      - 63.254.162.136/32  # rpcnode-base-mainnet-archive-prod-nodeserver-tsw-apne1-03
+      - 63.254.162.137/32  # rpcnode-base-mainnet-archive-prod-nodeserver-tsw-apne1-04
+      - 63.254.162.138/32  # rpc_node-tron-testnet-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.159/32  # rpc_node-tron-testnet-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.160/32  # rpc_node-bnb-mainnet-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.161/32  # rpc_node-bnb-mainnet-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.166/32  # rpc_node-arbitrum-mainnet-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.167/32  # rpc_node-arbitrum-mainnet-archive-prod-node_server-tsw-apne1-03
+      - 63.254.162.168/32  # rpc_node-arbitrum-mainnet-archive-prod-node_server-tsw-apne1-04
+      - 63.254.162.169/32  # rpc_node-arbitrum-sepolia-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.170/32  # rpc_node-arbitrum-mainnet-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.195/32  # rpc_node-bnb-testnet-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.196/32  # rpc_node-bnb-testnet-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.197/32  # rpc_node-avalanche-mainnet-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.198/32  # rpc_node-avalanche-mainnet-archive-prod-node_server-tsw-apne1-02
+      - 63.254.162.199/32  # rpc_node-avalanche-mainnet-archive-prod-node_server-tsw-apne1-03
+      - 63.254.162.200/32  # rpc_node-base-sepolia-archive-prod-node_server-tsw-apne1-01
+      - 64.130.44.132/32   # rpc_node-eth-sepolia-archive-prod-node_server-tsw-apne1-01
+      - 64.130.44.139/32   # rpc_node-avalanche-testnet-archive-prod-node_server-tsw-apne1-02
+      - 64.130.44.165/32   # rpc_node-avalanche-testnet-archive-prod-node_server-tsw-apne1-01
+      - 64.130.44.168/32   # rpc_node-base-sepolia-archive-prod-node_server-tsw-apne1-02
+      - 64.130.44.187/32   # rpc_node-eth-sepolia-archive-prod-node_server-tsw-apne1-02
+      - 64.130.44.188/32   # rpc_node-avalanche-mainnet-archive-prod-node_server-tsw-apne1-04
+      - 64.130.44.140/32   # rpc_node-eth-mainnet-archive-prod-node_server-tsw-apne1-01
+      - 63.254.162.210/32  # rpc_node-eth-mainnet-archive-prod-node_server-tsw-apne1-02
+      - 63.254.163.77/32   # archv2-dedicated-multi1-tsw-apne1-0
+      - 63.254.163.76/32   # archv2-dedicated-multi1-tsw-apne1-1
+      - 63.254.163.78/32   # archv2-dedicated-multi1-tsw-apne1-2
+      - 64.130.44.148/32   # rpc_node-eth-mainnet-archive-prod-node_server-tsw-apne1-03
+      - 64.130.44.106/32   # rpc_node-eth-mainnet-archive-prod-node_server-tsw-apne1-04
+      - 208.91.105.144/32  # solana-tsw-prod-use1-master-0
+      - 208.91.105.89/32   # solana-tsw-prod-use1-master-1
+      - 208.91.105.111/32  # solana-tsw-prod-use1-master-2
+      - 208.91.105.112/32  # solana-tsw-prod-use1-wn-3
+      - 208.91.105.113/32  # solana-tsw-prod-use1-wn-4
+      - 208.91.105.114/32  # solana-tsw-prod-use1-wn-5
+      - 68.233.33.24/32    # rpc-node-matic-mainnet-archive-prod-node-server-hc-apne1-01
+      - 68.233.33.21/32    # rpc-node-matic-mainnet-archive-prod-node-server-hc-apne1-02
+      - 68.233.33.12/32   # rpc-node-matic-mainnet-archive-prod-node-server-hc-apne1-03
+      - 68.233.33.20/32    # rpc-node-matic-mainnet-archive-prod-node-server-hc-apne1-04
+      - 68.233.33.3/32     # rpcnode-tron-mainnet-archive-prod-nodeserver-hc-apne1-01
+      - 68.233.33.23/32    # rpcnode-tron-mainnet-archive-prod-nodeserver-hc-apne1-02
+      - 68.233.33.2/32     # rpcnode-tron-mainnet-archive-prod-nodeserver-hc-apne1-03
+      - 68.233.33.9/32     # rpcnode-tron-mainnet-archive-prod-nodeserver-hc-apne1-04
+      - 68.233.33.11/32   # rpcnode-avalanche-testnet-archive-prod-nodeserver-hc-apne1-01
+      - 68.233.33.4/32    # rpcnode-avalanche-testnet-archive-prod-nodeserver-hc-apne1-02
+      - 198.13.138.122/32 # solana-tsw-prod-euc1-master-0
+      - 198.13.138.124/32 # solana-tsw-prod-euc1-master-1
+      - 64.130.50.164/32  # solana-tsw-prod-euc1-master-2
+      - 64.130.40.216/32  # solana-tsw-prod-euc1-wn-3
+      - 64.130.40.115/32  # solana-tsw-prod-euc1-wn-4
+      - 63.254.172.53/32  # solana-tsw-prod-use3-master-0
+      - 63.254.172.54/32  # solana-tsw-prod-use3-master-1
+      - 208.91.110.70/32  # solana-tsw-prod-use3-master-2
+      - 208.91.110.154/32 # solana-tsw-prod-use3-wn-3
+      - 64.130.34.45/32   # solana-tsw-prod-use3-wn-4
+      - 64.130.33.11/32   # solana-tsw-prod-usw3-master-0
+      - 64.130.33.21/32   # solana-tsw-prod-usw3-master-1
+      - 64.130.33.22/32   # solana-tsw-prod-usw3-master-2
+      - 64.130.33.117/32  # solana-tsw-prod-usw3-wn-3
+      - 64.130.33.115/32  # solana-tsw-prod-usw3-wn-4
+      - 63.254.163.89/32  # solana-tsw-prod-apne1-master-0
+      - 63.254.163.94/32  # solana-tsw-prod-apne1-master-1
+      - 63.254.163.73/32  # solana-tsw-prod-apne1-master-2
+      - 63.254.163.79/32  # solana-tsw-prod-apne1-wn-3
+      - 64.130.44.43/32   # solana-tsw-prod-apne1-wn-4
+      - 63.254.163.123/32 # edge-proxy-tsw-prod-apne1-master-0
+      - 63.254.163.122/32 # edge-proxy-tsw-prod-apne1-master-1
+      - 63.254.163.69/32  # edge-proxy-tsw-prod-apne1-master-2
+      - 63.254.162.220/32 # archv2-tsw-prod-apne1-master-0
+      - 63.254.162.221/32 # archv2-tsw-prod-apne1-wn-3
+      - 63.254.162.222/32 # archv2-tsw-prod-apne1-master-1
+      - 63.254.163.57/32  # archv2-tsw-prod-apne1-wn-5
+      - 63.254.163.58/32  # archv2-tsw-prod-apne1-wn-4
+      - 63.254.163.59/32  # archv2-tsw-prod-apne1-master-2
+      - 64.130.44.137/32  # solana-mainnet-grpc-prod-apne1-0
+      - 63.254.163.120/32 # solana-mainnet-grpc-prod-apne1-1
+      - 64.130.37.160/32  # solana-mainnet-grpc-prod-use3-0
+      - 64.130.59.85/32   # solana-mainnet-grpc-prod-use3-1
+      - 198.13.140.71/32  # solana-mainnet-grpc-prod-euc1-0
+      - 64.130.32.235/32  # solana-mainnet-grpc-prod-euc1-1
+      - 64.130.53.68/32   # solana-mainnet-grpc-prod-usw3-0
+      - 64.130.33.82/32   # solana-mainnet-grpc-prod-usw3-1
