@@ -1,0 +1,72 @@
+name: Network Path Monitor Tests
+
+# Chart-scoped test workflow for network-path-monitor. Renders the chart's
+# scenario fixtures via the repo-local helm-renderer handler
+# (.github/scripts/helm_tests/handler.py, selected with --handler) and asserts on the
+# rendered output with the pytest suite in .github/scripts/helm_tests/.
+#
+# Kept separate from helm-quality-checks.yaml because it opts into the
+# --handler render path (scenario overlays under network-path-monitor/tests/),
+# which the main gating render deliberately does not use. Path-filtered so it
+# only runs when the chart, its fixtures, the handler, or this chart's tests
+# change. Shared helm_tests helpers/conftest are included; sibling chart
+# packages under helm_tests/integration/ are not (they must not drag a full
+# network-path-monitor render).
+# Not a required status check.
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - network-path-monitor/**
+      - .github/scripts/helm_tests/handler.py
+      - .github/scripts/helm_tests/conftest.py
+      - .github/scripts/helm_tests/helpers/**
+      - .github/scripts/helm_tests/integration/network_path_monitor/**
+      - .github/actions/helm-setup/**
+      - .github/workflows/network-path-monitor-tests.yaml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render-and-test:
+    name: Render + test network-path-monitor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+
+      - name: Setup (uv, Helm, AWS CodeArtifact)
+        uses: ./.github/actions/helm-setup
+        with:
+          ghcr-token: ${{ secrets.COMPUTEV2_GITOPS_GHCR_READ_TOKEN }}
+
+      # Render default values + every generated scenario overlay (from
+      # handler.POSITIVE_SCENARIOS, written to a gitignored test-values-files/
+      # dir) into network-path-monitor/helm-render-output/ via the handler.
+      - name: Render scenarios
+        run: |
+          uv run --project .github/scripts helm-renderer \
+            --target-repo . \
+            --target-chart network-path-monitor \
+            --handler .github/scripts/helm_tests/handler.py
+
+      # PYTEST_FAIL_ON_SKIP=1 turns a missing rendered output (a skipped
+      # parametrization) into a hard failure instead of a silent pass.
+      # Scoped to this chart's package so sibling helm_tests/integration/*
+      # suites (e.g. alchemy_observability_shard) are not pulled in.
+      - name: Assert rendered output
+        env:
+          PYTEST_FAIL_ON_SKIP: '1'
+        run: |
+          uv run --project .github/scripts pytest \
+            .github/scripts/helm_tests/integration/network_path_monitor/ -v --color=yes

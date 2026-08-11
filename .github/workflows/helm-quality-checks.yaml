@@ -1,0 +1,478 @@
+name: Helm Quality Checks
+
+# Fan-out structure: a cheap `changes` job runs the path filter, then the work
+# splits into independent jobs that run concurrently on their own runners —
+#   version-gates  rollout chart-version pin gates (fast, no helm)
+#   unit-tests     pure-Python tests for CI scripts under unit_tests/
+#   render         the gating render gate over every chart root
+#   preview        non-gating PR-comment previews (helm-diff heavy)
+#   shard-tests    shard patch render pytest (helm_tests/integration/…)
+# — and all gating jobs funnel into one aggregator, `Render Helm Charts`, which
+# is the single required status check (named to match branch protection so the
+# split needs no protection edit). The heavy render gate and the helm-diff-heavy
+# preview now run in parallel instead of sequentially in one job. The render
+# gate logic lives in .github/scripts/ci/helm_quality.py; the preview/comment diff
+# now runs from the shared `helm-diff` CLI in cloud-infra-tools.
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: write
+  id-token: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+      preview: ${{ steps.paths.outputs.preview }}
+      dashboards: ${{ steps.paths.outputs.dashboards }}
+      shard: ${{ steps.paths.outputs.shard }}
+      skills: ${{ steps.paths.outputs.skills }}
+      unit_tests: ${{ steps.paths.outputs.unit_tests }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Detect relevant changes
+        id: paths
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706
+        with:
+          filters: |
+            relevant:
+              - helm/**
+              - dashboards/**
+              - alchemy-observability-agent/**
+              - alchemy-observability-core/**
+              - alchemy-observability-grafana/**
+              - alchemy-observability-shard/**
+              - aws-load-balancer-controller/**
+            # Broader than `relevant`: every chart root that helm-diff can
+            # comment on. Kept separate so root-chart PRs (loki, grafana, …)
+            # get sticky previews without forcing the expensive render /
+            # version-gate jobs that key off `relevant`.
+            preview:
+              - helm/**
+              - alchemy-observability-agent/**
+              - alchemy-observability-core/**
+              - alchemy-observability-grafana/**
+              - alchemy-observability-shard/**
+              - alertmanager/**
+              - aws-load-balancer-controller/**
+              - cert-manager/**
+              - cluster-autoscaler/**
+              - dashboards/**
+              - external-secrets/**
+              - falcon/**
+              - grafana/**
+              - grafana-dashboard-syncer/**
+              - heimdall/**
+              - istio-base/**
+              - istio-gateway/**
+              - istiod/**
+              - kiali/**
+              - loki/**
+              - network-path-monitor/**
+              - operators/**
+              - profiling/**
+              - provider-metrics-exporters/**
+              - public-ip-discovery/**
+              - thanos/**
+              - tracing/**
+              - wiz/**
+            dashboards:
+              - dashboards/**
+            shard:
+              - alchemy-observability-shard/**
+              - cert-manager/**
+              - operators/**
+              - cluster-autoscaler/**
+              - external-secrets/**
+              - istio-base/**
+              - istio-gateway/**
+              - istiod/**
+              - kiali/**
+              - loki/**
+              - tracing/**
+              - profiling/**
+            skills:
+              - .agents/skills/**
+              - CLAUDE.md
+              - .github/scripts/ci/check_skill_contracts.py
+              - .github/scripts/unit_tests/test_check_skill_contracts.py
+              - .github/workflows/helm-quality-checks.yaml
+            unit_tests:
+              - .github/scripts/**/*.py
+              - .github/scripts/pyproject.toml
+              - .github/workflows/helm-quality-checks.yaml
+
+  # Skill-contract checks are independent of Helm rendering. Keeping this as a
+  # separate path-filtered job means documentation-only skill PRs stay cheap.
+  skill-contracts:
+    name: Skill contracts
+    needs: changes
+    if: needs.changes.outputs.skills == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - name: Python setup
+        uses: ./.github/actions/helm-setup
+        with:
+          install-helm: 'false'
+      - name: Validate skill contracts
+        run: uv run --project .github/scripts python .github/scripts/ci/check_skill_contracts.py
+      - name: Run skill-contract tests
+        run: uv run --project .github/scripts pytest .github/scripts/unit_tests/test_check_skill_contracts.py -q
+
+  # Pure-Python unit tests for CI gate helpers (helm_quality, version gates, etc.).
+  # Cheap and independent of helm render; kept path-filtered so docs-only PRs stay
+  # no-ops. Skill-contract pytest still runs in `skill-contracts` so skill-only
+  # PRs exercise that file without needing the broader scripts filter.
+  unit-tests:
+    name: Script unit tests
+    needs: changes
+    if: needs.changes.outputs.unit_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - name: Python setup
+        uses: ./.github/actions/helm-setup
+        with:
+          install-helm: 'false'
+      - name: Run script unit tests
+        run: uv run --project .github/scripts pytest .github/scripts/unit_tests/ -q
+
+  # Rollout chart-version pin gates (post-SEV2 May 2026). No helm/deps needed,
+  # so this runs off the render critical path.
+  #
+  # check_rollout_chart_versions: a rollout PR can pin a config.yaml chartVersion
+  # to N while alchemy-observability-*/Chart.yaml on master has already moved to
+  # N+1 — ArgoCD then deploys the stale N (the shard 0.0.18-vs-0.0.19
+  # retentionSize incident). Stage paths and floating `>=` ranges are exempt;
+  # stale pin → fail, ahead pin → warning.
+  #
+  # check_prod_stage_alignment: refuse to merge a PR that pins a prod chartVersion
+  # ahead of every stage pin for the same chart type in HEAD. Exact stage matches,
+  # combined stage+prod PRs, sequential rollouts, and prod pins behind a stage pin
+  # that has already moved ahead all pass; prod-only-skipping-stage is blocked. No
+  # override label by design — fix the rollout shape, not the gate.
+  #
+  # check_alchemy_prod_version_bump: refuse to merge a PR that changes
+  # alchemy-observability-* chart content without bumping Chart.yaml version when
+  # that version is pinned on prod. Pre-prod / in-flight versions may still be
+  # overwritten in place. Failures upsert a sticky PR comment with fix steps via
+  # post_version_gate_pr_comment.py (same for the other two gates).
+  #
+  # check_queue_window_alignment: refuse to merge a PR that leaves a producer
+  # remoteWrite queueConfig.sampleAgeLimit (core/agent patches) unaligned with
+  # the shard's tsdb.outOfOrderTimeWindow (alchemy-observability-shard/values.yaml).
+  # Unlike the other three gates this is a static invariant over current repo
+  # state, not diff-based — it runs unconditionally whenever this job runs.
+  # Prevents a recurrence of the June 2026 SEV1 retry-storm failure mode.
+  version-gates:
+    name: Rollout chart-version gates
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+      # Needs Helm + GHCR: check_rollout_chart_versions.py runs
+      # `helm show chart oci://ghcr.io/alchemy-docker/helm-charts/...` to verify
+      # the pinned version is published.
+      - name: Helm Quality setup
+        uses: ./.github/actions/helm-setup
+        with:
+          ghcr-token: ${{ secrets.COMPUTEV2_GITOPS_GHCR_READ_TOKEN }}
+      - name: Init version gate findings
+        run: |
+          findings="$RUNNER_TEMP/version-gate-findings.jsonl"
+          echo "VERSION_GATE_FINDINGS=$findings" >> "$GITHUB_ENV"
+          truncate -s 0 "$findings"
+      - name: Check rollout chart-version pins against master
+        id: gate_rollout
+        continue-on-error: true
+        run: |
+          uv run --project .github/scripts python .github/scripts/ci/check_rollout_chart_versions.py \
+            --base-ref "origin/$BASE_REF" \
+            --findings-file "$VERSION_GATE_FINDINGS"
+      - name: Check prod chartVersion alignment with stage
+        id: gate_stage
+        continue-on-error: true
+        run: |
+          uv run --project .github/scripts python .github/scripts/ci/check_prod_stage_alignment.py \
+            --base-ref "origin/$BASE_REF" \
+            --findings-file "$VERSION_GATE_FINDINGS"
+      - name: Check alchemy chart bumps when version is prod-pinned
+        id: gate_alchemy
+        continue-on-error: true
+        run: |
+          uv run --project .github/scripts python .github/scripts/ci/check_alchemy_prod_version_bump.py \
+            --base-ref "origin/$BASE_REF" \
+            --findings-file "$VERSION_GATE_FINDINGS"
+      - name: Check producer/consumer queue-window alignment
+        id: gate_queue_window
+        continue-on-error: true
+        run: |
+          uv run --project .github/scripts python .github/scripts/ci/check_queue_window_alignment.py \
+            --findings-file "$VERSION_GATE_FINDINGS"
+      - name: Check K3s certificate-expiry monitoring coverage
+        id: gate_certificate_expiry
+        continue-on-error: true
+        run: |
+          uv run --project .github/scripts python .github/scripts/ci/check_certificate_expiry_monitoring.py
+      - name: Post version gate PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          uv run --project .github/scripts python .github/scripts/ci/post_version_gate_pr_comment.py \
+            --findings-file "$VERSION_GATE_FINDINGS" \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER"
+      - name: Fail if any version gate failed
+        if: always()
+        env:
+          GATE_ROLLOUT: ${{ steps.gate_rollout.outcome }}
+          GATE_STAGE: ${{ steps.gate_stage.outcome }}
+          GATE_ALCHEMY: ${{ steps.gate_alchemy.outcome }}
+          GATE_QUEUE_WINDOW: ${{ steps.gate_queue_window.outcome }}
+          GATE_CERTIFICATE_EXPIRY: ${{ steps.gate_certificate_expiry.outcome }}
+        run: |
+          echo "gate_rollout=$GATE_ROLLOUT gate_stage=$GATE_STAGE gate_alchemy=$GATE_ALCHEMY gate_queue_window=$GATE_QUEUE_WINDOW gate_certificate_expiry=$GATE_CERTIFICATE_EXPIRY"
+          failed=0
+          for r in "$GATE_ROLLOUT" "$GATE_STAGE" "$GATE_ALCHEMY" "$GATE_QUEUE_WINDOW" "$GATE_CERTIFICATE_EXPIRY"; do
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::One or more version gates failed — see the sticky PR comment for fix steps."
+            exit 1
+          fi
+
+  # End-to-end render gate for every chart root. Regenerate values from
+  # config.yaml (same code path the CMP plugin runs at sync time), restore the
+  # warmed dep cache, then helm_quality.py render-gate dependency-builds +
+  # templates every chart across a process pool and runs the declarative
+  # rendered-manifest guards. This is the gating heavy job.
+  render:
+    name: Render gate
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
+    runs-on: ubuntu-24.04-x64
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 1
+      - name: Helm Quality setup
+        uses: ./.github/actions/helm-setup
+        with:
+          ghcr-token: ${{ secrets.COMPUTEV2_GITOPS_GHCR_READ_TOKEN }}
+      - name: Lint dashboards chart
+        if: needs.changes.outputs.dashboards == 'true'
+        run: helm lint dashboards
+      - name: Regenerate values + Chart (PR head)
+        run: uv run --project .github/scripts helm-renderer --target-repo . --generate-values
+      # Cache the populated charts/ + Chart.lock. Restored after regenerate so
+      # the Chart.yaml hash in the key matches what warm-helm-deps.yaml saved on
+      # master. Deliberately no restore-keys: a partial match would warm charts/
+      # from a stale cache, the render-gate skip-gate would then bypass dep build
+      # and render against stale subcharts — a silent correctness bug. Take the
+      # cold-build hit on a Chart.yaml change instead.
+      - name: Cache helm chart dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            **/charts/
+            **/Chart.lock
+          key: helm-deps-${{ runner.os }}-${{ hashFiles('**/Chart.yaml') }}
+      - name: Render every chart + run guards
+        run: uv run --project .github/scripts python .github/scripts/ci/helm_quality.py render-gate
+      # Rendered-YAML assertions that a line-oriented guard cannot express —
+      # notably that dashboardUID sits under labels: (where annotation_bridge
+      # reads it) rather than annotations: (where nothing does). Runs here rather
+      # than in its own job because render-gate has already dependency-built
+      # core and agent, so this is a cheap extra `helm template` per chart.
+      - name: Capacity alert render tests
+        run: |
+          uv run --project .github/scripts pytest \
+            .github/scripts/helm_tests/integration/alchemy_observability_capacity_alerts/ -q
+      - name: Core VPA render tests
+        run: |
+          uv run --project .github/scripts pytest \
+            .github/scripts/helm_tests/integration/alchemy_observability_core/ -q
+
+  # Non-gating PR-comment previews. Regenerates values on both refs, then the
+  # shared helm-diff CLI (cloud-infra-tools) diffs the inputs (Chart.yaml /
+  # values*.yaml / config.yaml) and the rendered manifests between the base ref
+  # and PR head and upserts paginated sticky comments. Triggered by the broader
+  # `preview` path filter (all chart roots, not just `relevant`/helm/**). Runs
+  # concurrently with `render`; excluded from the required aggregator's needs so
+  # a preview hiccup never blocks merge.
+  preview:
+    name: Helm diff preview
+    needs: changes
+    if: needs.changes.outputs.preview == 'true'
+    runs-on: ubuntu-24.04-x64
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+      - name: Helm Quality setup
+        uses: ./.github/actions/helm-setup
+        with:
+          ghcr-token: ${{ secrets.COMPUTEV2_GITOPS_GHCR_READ_TOKEN }}
+      - name: Regenerate values + Chart (PR head)
+        run: uv run --project .github/scripts helm-renderer --target-repo . --generate-values
+      # Base ref in a worktree named after the repo so the built-in helm-renderer
+      # handler (which detects by directory basename) matches it on both sides.
+      - name: Regenerate values + Chart (base ref)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git worktree add /tmp/observability-infra-charts "origin/$BASE_REF"
+          uv run --project .github/scripts helm-renderer --target-repo /tmp/observability-infra-charts --generate-values
+      - name: Cache helm chart dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            **/charts/
+            **/Chart.lock
+          key: helm-deps-${{ runner.os }}-${{ hashFiles('**/Chart.yaml') }}
+      # Render both refs and upsert inputs + rendered sticky comments via the
+      # shared helm-diff CLI. Cert/secret churn from generated TLS secrets is
+      # filtered with --ignore-rendered-line (diff -I).
+      - name: Post Helm diff comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --project .github/scripts helm-diff \
+            --target-repo . \
+            --base-worktree /tmp/observability-infra-charts \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --marker-prefix observability-infra-charts \
+            --ignore-rendered-line 'caBundle:' \
+            --ignore-rendered-line 'ca.crt:' \
+            --ignore-rendered-line 'tls.crt:' \
+            --ignore-rendered-line 'tls.key:'
+
+  # Shard patch render tests — validate every patch variant preserves the
+  # prometheus-config-patcher sidecar and the required TSDB mutation settings.
+  # Triggered by the broader shard filter (loki/tracing/kiali/etc.), which can be
+  # true on PRs where `relevant` is false, so this builds its own deps.
+  shard-tests:
+    name: Shard patch render tests
+    needs: changes
+    if: needs.changes.outputs.shard == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 1
+      - name: Helm Quality setup
+        uses: ./.github/actions/helm-setup
+        with:
+          ghcr-token: ${{ secrets.COMPUTEV2_GITOPS_GHCR_READ_TOKEN }}
+      - name: Cache helm chart dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            **/charts/
+            **/Chart.lock
+          key: helm-deps-${{ runner.os }}-${{ hashFiles('**/Chart.yaml') }}
+      - name: Shard patch render tests
+        run: |
+          if [ ! -d "alchemy-observability-shard/charts" ]; then
+            helm dependency build alchemy-observability-shard
+          fi
+          uv run --project .github/scripts pytest \
+            .github/scripts/helm_tests/integration/alchemy_observability_shard/ -v
+
+  # Single required status check. Named "Render Helm Charts" to match existing
+  # branch protection. Passes when every gating job succeeded or was skipped
+  # (path-filtered no-op PRs stay green); fails if any gating job failed or was
+  # cancelled, or if `changes` itself failed. `preview` is intentionally absent
+  # from `needs` — it is non-gating.
+  required:
+    name: Render Helm Charts
+    needs: [changes, skill-contracts, unit-tests, version-gates, render, shard-tests]
+    # Always emit the required check, including when gating jobs are path-filtered
+    # skipped (e.g. PR touches only .github/ or other paths outside `relevant`).
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR head
+        if: github.event_name == 'pull_request' && needs.version-gates.result == 'skipped'
+        continue-on-error: true
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - name: Helm Quality setup
+        if: github.event_name == 'pull_request' && needs.version-gates.result == 'skipped'
+        continue-on-error: true
+        uses: ./.github/actions/helm-setup
+        with:
+          install-helm: 'false'
+      - name: Remove stale version gate PR comment
+        if: github.event_name == 'pull_request' && needs.version-gates.result == 'skipped'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          EMPTY="$RUNNER_TEMP/empty-version-gate-findings.jsonl"
+          truncate -s 0 "$EMPTY"
+          uv run --project .github/scripts python .github/scripts/ci/post_version_gate_pr_comment.py \
+            --findings-file "$EMPTY" \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER"
+      - name: Verify gating jobs
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          VERSION_GATES: ${{ needs.version-gates.result }}
+          RENDER: ${{ needs.render.result }}
+          SHARD_TESTS: ${{ needs.shard-tests.result }}
+          SKILL_CONTRACTS: ${{ needs.skill-contracts.result }}
+          UNIT_TESTS: ${{ needs.unit-tests.result }}
+        run: |
+          echo "changes=$CHANGES skill-contracts=$SKILL_CONTRACTS unit-tests=$UNIT_TESTS version-gates=$VERSION_GATES render=$RENDER shard-tests=$SHARD_TESTS"
+          # `changes` must actually succeed — if setup failed the others are
+          # skipped, which must not read as a pass.
+          if [ "$CHANGES" != "success" ]; then
+            echo "::error::changes job did not succeed ($CHANGES)"
+            exit 1
+          fi
+          for r in "$SKILL_CONTRACTS" "$UNIT_TESTS" "$VERSION_GATES" "$RENDER" "$SHARD_TESTS"; do
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
+              echo "::error::a gating job did not succeed (got '$r')"
+              exit 1
+            fi
+          done
+          echo "All gating jobs passed."

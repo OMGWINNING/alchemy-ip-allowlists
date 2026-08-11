@@ -1,0 +1,170 @@
+name: Publish Helm Charts (agent, shard, core, grafana)
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'alchemy-observability-agent/**'
+      - 'alchemy-observability-shard/**'
+      - 'alchemy-observability-core/**'
+      - 'alchemy-observability-grafana/**'
+  workflow_dispatch:
+
+# Serialize publish runs: two pushes landing close together could otherwise
+# both pass the tag-exists check for a new version and race their pushes.
+concurrency:
+  group: publish-helm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2
+
+      - name: Log in to Github Container Registry
+        run: |
+          echo "${{ secrets.COMPUTEV2_INFRA_CHARTS_BUILD }}" | helm registry login ghcr.io -u alchemy-docker --password-stdin
+
+      - name: Package and push charts
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # Chart tags referenced by prod are immutable: ArgoCD repo-server
+          # pods cache dependency tarballs per-pod by (name, version), so
+          # re-pushing an existing tag with different content makes renders
+          # depend on which pod's cache is freshest — producing
+          # nondeterministic diffs across replicas. Overwriting an existing
+          # tag stays allowed while no prod config pins that version (stage
+          # floats via ">=0.0.0-0" and is meant to canary republished
+          # content); once any helm/*/prod/**/config.yaml pins it, a content
+          # change must ship under a new version. Stage renders can still be
+          # briefly nondeterministic after a republish (same per-pod caching
+          # applies there) — accepted as the canary trade-off, scoped to
+          # stage by this guard.
+
+          # Files changed by this push, used to tell "changed but not bumped"
+          # (hard error) apart from "untouched chart, tag already published"
+          # (skip). Empty on workflow_dispatch or when the before-SHA is
+          # unavailable (e.g. force push), in which case existing tags are
+          # skipped without the changed-file check.
+          CHANGED_FILES=""
+          if [ -n "${BEFORE_SHA:-}" ] && git cat-file -e "${BEFORE_SHA}" 2>/dev/null; then
+            CHANGED_FILES=$(git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}")
+          fi
+
+          # Whether any prod instance config pins this version. Checked across
+          # all three version keys without mapping key->chart: version strings
+          # can collide across charts (e.g. core and shard both at 0.0.27), so
+          # a collision makes the guard slightly over-strict, never lax.
+          #
+          # The helm/*/prod glob tracks the documented rule (any
+          # helm/<group>/prod/**/config.yaml), so a future group is covered
+          # without editing this script. Iterating only existing dirs and
+          # shielding the collecting grep's exit status keeps the final
+          # match-grep the sole decider under pipefail: a glob non-match or a
+          # removed prod dir must not flip the pipeline non-zero and read as
+          # "no pins found" while a surviving dir still pins the version.
+          prod_pins_version() {
+            local version="$1" dir
+            local dirs=()
+            for dir in helm/*/prod; do
+              [ -d "${dir}" ] && dirs+=("${dir}")
+            done
+            [ "${#dirs[@]}" -eq 0 ] && return 1
+            { grep -rhE '^(chartVersion|grafanaChartVersion|shardChartVersion):' \
+                "${dirs[@]}" --include=config.yaml 2>/dev/null || true; } \
+              | awk '{ print $2 }' | tr -d "\"'" | grep -qFx "${version}"
+          }
+
+          # Probe whether a chart version is already published. Only a genuine
+          # "not published" from the registry counts as publishable — transient
+          # failures (network blip, rate limit) must NOT fall through to a
+          # push, or they would silently overwrite the existing tag. Retries
+          # transient errors, then aborts the run.
+          #
+          # "not found"/"manifest unknown"/"name unknown" (missing version or
+          # repo) are definitive and returned immediately. Auth-flavored
+          # responses (denied/unauthorized) are ambiguous: GHCR reports a
+          # nonexistent repo — i.e. a chart's first-ever publish — the same
+          # way as a transient 401/403 on an existing tag, so they are
+          # retried like other transient errors and only decided after the
+          # loop: persistent auth counts as not-published (a genuine
+          # bootstrap proceeds; a broken token still fails loudly at helm
+          # push) unless the version is prod-pinned, in which case pushing on
+          # an auth-degraded verdict risks overwriting the pinned tag and the
+          # run aborts instead.
+          # Returns: 0 = tag exists, 1 = tag not published.
+          tag_exists() {
+            local name="$1" version="$2" out attempt
+            for attempt in 1 2 3; do
+              if out=$(helm show chart "oci://ghcr.io/alchemy-docker/helm-charts/${name}" --version "${version}" 2>&1 >/dev/null); then
+                return 0
+              fi
+              if printf '%s' "${out}" | grep -qiE 'not found|manifest unknown|404|name unknown'; then
+                return 1
+              fi
+              echo "WARN: could not check ${name} ${version} (attempt ${attempt}/3): ${out}" >&2
+              sleep 5
+            done
+            if printf '%s' "${out}" | grep -qiE 'denied|unauthorized'; then
+              if prod_pins_version "${version}"; then
+                echo "::error::Persistent auth error while checking ${name} ${version}, which is pinned by a prod config; refusing to risk overwriting it. Last error: ${out}"
+                exit 1
+              fi
+              return 1
+            fi
+            echo "::error::Could not determine whether ${name} ${version} is already published; refusing to push over a possibly existing tag. Last error: ${out}"
+            exit 1
+          }
+
+          UNBUMPED=""
+          for chart in agent shard core grafana; do
+            NAME="alchemy-observability-${chart}"
+            echo "Processing ${NAME} chart..."
+
+            # Extract version
+            VERSION=$(grep '^version:' "${NAME}/Chart.yaml" | awk '{ print $2 }')
+            echo "Chart version: $VERSION"
+
+            if tag_exists "${NAME}" "${VERSION}"; then
+              if ! printf '%s\n' "${CHANGED_FILES}" | grep -q "^${NAME}/"; then
+                echo "${NAME} ${VERSION} already published and unchanged; skipping."
+                continue
+              fi
+              if prod_pins_version "${VERSION}"; then
+                echo "::error::${NAME} changed in this push but version ${VERSION} is already published and pinned by a prod config. Bump 'version' in ${NAME}/Chart.yaml."
+                UNBUMPED="${UNBUMPED} ${NAME}"
+                continue
+              fi
+              echo "::warning::${NAME} ${VERSION} is already published but not pinned by any prod config; overwriting the tag (stage floats and will pick up the new content)."
+            fi
+
+            # Fetch dependencies
+            helm dependency update "${NAME}"
+
+            # Package chart
+            helm package "${NAME}" --destination .
+
+            # Push to GHCR
+            helm push "${NAME}-${VERSION}.tgz" oci://ghcr.io/alchemy-docker/helm-charts
+
+            echo "Successfully published ${NAME} version ${VERSION}"
+          done
+
+          if [ -n "${UNBUMPED}" ]; then
+            echo "::error::Charts changed without a version bump:${UNBUMPED}. Tags pinned by prod configs are immutable — bump the chart version and re-run."
+            exit 1
+          fi

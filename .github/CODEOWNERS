@@ -1,0 +1,15 @@
+* @OMGWINNING/cloud-infra @alchemy-bot
+/alchemy-public-ips/* @OMGWINNING/cloud-infra @alchemy-github-bot
+/alchemy-public-ips/cloudflare-warp.yaml @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/*/ovh/nodes/base/templates/node_alerts/** @OMGWINNING/node-ops @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/*/ovh/nodes/base/templates/validator_alerts/** @OMGWINNING/node-ops @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/*/ovh/archv2/*/templates/ @OMGWINNING/platform-infra @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/billing-*.yaml @OMGWINNING/platform-infra @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/chainlake-*.yaml @OMGWINNING/eng-data-services @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/webhooks-*.yaml @OMGWINNING/eng-data-services @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/*-webhooks-*.yaml @OMGWINNING/eng-data-services @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/sli-eapi-transfers-ingestion-*.yaml @OMGWINNING/eng-data-services @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/dx-*-alerts.yaml @OMGWINNING/eng-dashboard @OMGWINNING/cloud-infra
+/helm/observability-platform/prod/use1/aws/ecs/multi/templates/dx-recording-rules.yaml @OMGWINNING/eng-dashboard @OMGWINNING/cloud-infra
+/helm/remote-clusters/prod/use1/aws/observability/core/templates/chainlake-*.yaml @OMGWINNING/eng-data-services @OMGWINNING/cloud-infra
+/dashboards/files/dashboards/dev-experience/ @OMGWINNING/eng-dashboard @OMGWINNING/cloud-infra

@@ -1,0 +1,27 @@
+{
+  "report": {
+    "mtr": {
+      "src": "mtr-source",
+      "dst": "203.0.113.10",
+      "tests": 10
+    },
+    "hubs": [
+      {
+        "count": 1,
+        "host": "source-gateway",
+        "Loss%": 0.0,
+        "Avg": 0.2,
+        "Wrst": 0.3,
+        "StDev": 0.1
+      },
+      {
+        "count": 2,
+        "host": "target-gateway",
+        "Loss%": 2.5,
+        "Avg": 42.7,
+        "Wrst": 51.2,
+        "StDev": 3.4
+      }
+    ]
+  }
+}

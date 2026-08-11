@@ -1,0 +1,52 @@
+[project]
+name = "observability-infra-charts"
+version = "0.1.0"
+description = "Helm chart templating and generation for observability applications"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "cloud-infra-tools==1.30.1",
+    "pyyaml>=6.0",
+    "loguru>=0.7.0",
+    "requests>=2.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "deepdiff>=9.1.0",
+    "pytest>=9.1.1",
+]
+
+[[tool.uv.index]]
+name = "cloud-infra-tools"
+url = "https://cloud-infra-tools-209202477790.d.codeartifact.us-east-1.amazonaws.com/pypi/cloud-infra-tools/simple/"
+
+[tool.pytest.ini_options]
+# Two suites under this project:
+#   unit_tests/  — pure-Python tests for CI scripts (ci/, lib/)
+#   helm_tests/  — chart render/scenario assertions (per-chart under integration/)
+# Prefer chart-scoped invocation so you only need helm deps for one chart:
+#   uv run --project .github/scripts pytest .github/scripts/helm_tests/integration/<chart>/
+# pythonpath makes `from helm_tests.helpers.utils import …` work for those imports.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "F",      # Pyflakes (includes F841 unused variables, F401 unused imports)
+    "E",      # Pycodestyle errors
+    "W",      # Pycodestyle warnings
+    "ARG",    # Flake8 unused arguments
+    "UP",     # Pyupgrade
+    "C4",     # Flake8 comprehensions
+    "SIM",    # Flake8 simplify
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py for re-exports

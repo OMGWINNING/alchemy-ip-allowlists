@@ -1,0 +1,151 @@
+name: Warm Helm Deps Cache
+
+# actions/cache scopes entries per-ref. PRs can *read* from master's cache
+# but only master can *write* one — and Helm Quality Checks only runs on
+# pull_request, so master never populates the cache. Every fresh PR pays
+# the full cold `helm dependency build` cost (~5 min) on first push.
+#
+# This workflow does just the regenerate + dep-build steps on push to
+# master (and a daily cron as a safety net for cache eviction; GitHub
+# evicts entries unused for 7 days). It uses the same cache key/path as
+# helm-quality-checks.yaml so PRs read it transparently.
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'helm/**'
+      - 'alchemy-observability-agent/**'
+      - 'alchemy-observability-core/**'
+      - 'alchemy-observability-grafana/**'
+      - 'alchemy-observability-shard/**'
+      - 'aws-load-balancer-controller/**'
+      - 'cert-manager/**'
+      - 'operators/**'
+      - 'cluster-autoscaler/**'
+      - 'external-secrets/**'
+      - 'istio-base/**'
+      - 'istio-gateway/**'
+      - 'istiod/**'
+      - 'kiali/**'
+      - 'loki/**'
+      - 'tracing/**'
+      # The helm-renderer script generates values.yaml/Chart.yaml; a change
+      # there can alter the Chart.yaml hash that keys the cache, so the
+      # master push landing that script change needs to re-warm. Without
+      # this entry, PRs would miss the cache until the next helm/ commit
+      # or the daily cron.
+      - '.github/scripts/**'
+      - '.github/workflows/warm-helm-deps.yaml'
+  schedule:
+    # Daily at 06:00 UTC to keep the cache fresh against GitHub's 7-day
+    # unused-entry eviction during quiet periods.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  warm-cache:
+    name: Warm helm dependency cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 1
+
+      - name: Set up uv (Python 3.14)
+        uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+        with:
+          python-version: '3.14'
+          enable-cache: true
+
+      # Keep uv's project venv outside the workspace so the helm-deps cache glob
+      # `**/charts/` can't capture `.github/scripts/.venv/.../helm_renderer/
+      # components/charts` and bake a partial venv into the master cache that
+      # PRs restore. Must match helm-setup composite action in
+      # helm-quality-checks.yaml.
+      - name: Pin uv project venv outside the workspace
+        run: echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/helmq-venv" >> "$GITHUB_ENV"
+
+      - name: Install Helm
+        run: |
+          curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+          helm version
+
+      - name: Login to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.COMPUTEV2_GITOPS_GHCR_READ_TOKEN }}
+        run: echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u alchemy-docker --password-stdin
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
+        with:
+          role-to-assume: arn:aws:iam::209202477790:role/GitHub-Code-Artifact
+          role-session-name: cloud-infra-warm-helm-deps
+          aws-region: us-east-1
+
+      - name: Authenticate uv to CodeArtifact
+        run: |
+          token=$(aws codeartifact get-authorization-token \
+            --domain cloud-infra-tools --domain-owner 209202477790 \
+            --region us-east-1 --query authorizationToken --output text)
+          echo "::add-mask::$token"
+          {
+            echo "UV_INDEX_CLOUD_INFRA_TOOLS_USERNAME=aws"
+            echo "UV_INDEX_CLOUD_INFRA_TOOLS_PASSWORD=$token"
+          } >> "$GITHUB_ENV"
+
+      # Regenerate values.yaml/Chart.yaml so the Chart.yaml hash that keys
+      # the cache matches what PRs see after their own regenerate step.
+      # Without this, a PR with no Chart.yaml edits could still miss the
+      # cache because the committed Chart.yaml on master might lag the
+      # generated one.
+      - name: Regenerate values + Chart
+        run: uv run --project .github/scripts helm-renderer --target-repo . --generate-values
+
+      # Same key/path as helm-quality-checks.yaml — PR runs restore from
+      # whatever this workflow last saved on master.
+      - name: Cache helm chart dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            **/charts/
+            **/Chart.lock
+          key: helm-deps-${{ runner.os }}-${{ hashFiles('**/Chart.yaml') }}
+
+      # Build deps for every chart root the render gate visits. Same
+      # exclusions as helm-quality-checks.yaml (patches/ are templates
+      # with placeholder versions, not real charts). Skip-gate matches
+      # too: if the cache restore populated charts/, don't rebuild.
+      - name: helm dependency build (all charts)
+        run: |
+          set -euo pipefail
+          mapfile -t charts < <(
+            find . -type f -name Chart.yaml \
+              -not -path './.git/*' \
+              -not -path '*/charts/*' \
+              -not -path '*/patches/*' \
+              -not -path './.github/*' \
+              | sort
+          )
+          for chartfile in "${charts[@]}"; do
+            chart=$(dirname "$chartfile")
+            if [ ! -d "$chart/charts" ]; then
+              echo "::group::helm dependency build $chart"
+              helm dependency build "$chart"
+              echo "::endgroup::"
+            else
+              echo "skip (cached): $chart"
+            fi
+          done
