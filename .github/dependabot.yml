@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Alchemy Observability Core - Helm chart dependencies
+  - package-ecosystem: "helm"
+    directory: "/alchemy-observability-core"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    groups:
+      alchemy-observability-core:
+        patterns:
+          - "*"
+
+  # Alchemy Observability Grafana - Helm chart dependencies
+  - package-ecosystem: "helm"
+    directory: "/alchemy-observability-grafana"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    groups:
+      alchemy-observability-grafana:
+        patterns:
+          - "*"
+
+  # Intentionally disabled for Agent & Shard charts which are using the same dependencies as core
+  # Requires manual intervention to update dependencies, but reduces noise in the PRs.

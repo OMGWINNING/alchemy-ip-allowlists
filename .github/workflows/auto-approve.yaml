@@ -1,0 +1,102 @@
+name: Auto Approve PR
+
+on:
+  pull_request:
+    types:
+      - labeled
+      - opened
+      - edited
+      - synchronize
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  auto-approve:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Team
+        id: check_team
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          github-token: ${{ secrets.AUTO_APPROVE_BOT_TOKEN }}
+          script: |
+            const org = context.repo.owner;
+            const teamSlug = "cloud-infra";
+            const username = context.payload.pull_request.user.login;
+            let isAllowed = false;
+
+            try {
+              const membership = await github.rest.teams.getMembershipForUserInOrg({
+                org,
+                team_slug: teamSlug,
+                username,
+              });
+              isAllowed = membership?.data?.state === "active";
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            core.info(
+              `Team check: org=${org} team=${teamSlug} user=${username} allowed=${isAllowed}`
+            );
+            core.setOutput("approve", isAllowed);
+
+      - name: Check Commit
+        id: check_commit
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const commits = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const patterns = ['revert:', 'deploy:', 'chore:'];
+            const hasSelfServiceCommit = commits.data.some(commit => 
+              patterns.some(pattern => commit.commit.message.toLowerCase().startsWith(pattern))
+            );
+
+            core.setOutput('approve', hasSelfServiceCommit);
+    
+      - name: Check File
+        id: check_file
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+          
+            const allowedExtensions = ['.yaml', '.yml'];
+            const filesHaveYaml = files.data.some(file =>
+              allowedExtensions.some(ext => file.filename.toLowerCase().endsWith(ext))
+            );
+          
+            core.setOutput('approve', filesHaveYaml);
+
+      - name: Auto Approve PR
+        if: steps.check_team.outputs.approve == 'true' &&
+              steps.check_commit.outputs.approve == 'true' &&
+              steps.check_file.outputs.approve == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          github-token: ${{ secrets.AUTO_APPROVE_BOT_TOKEN }}
+          script: |
+            try {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                event: "APPROVE",
+              });
+            } catch (error) {
+              core.setFailed(`Failed to approve PR: ${error.message}`);
+            }

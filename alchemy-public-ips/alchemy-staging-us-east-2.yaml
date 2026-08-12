@@ -1,0 +1,4 @@
+alchemyIPs:
+  alchemy-staging:
+    us-east-2:
+    - 18.217.142.177/32

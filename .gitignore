@@ -1,0 +1,98 @@
+# Kubernetes & Helm
+*.tgz
+.helm/
+charts/*/charts/
+charts/*/requirements.lock
+.cache/
+**/Chart.lock**
+rendered-chart.yaml
+**/helm-render-output
+
+# CMP-rendered chart roots: the helm-render-obs ArgoCD sidecar regenerates
+# values.yaml/Chart.yaml from config.yaml at sync time, so committed copies
+# are dead weight. Ignoring them prevents a local `helm-renderer --generate-values`
+# run + `git add -A` from silently re-committing them (the drift gate in
+# .github/workflows/helm-quality-checks.yaml would accept regenerated==committed).
+# All per-instance chart roots use this config-driven model.
+helm/observability-platform/**/**/core/values.yaml
+helm/observability-platform/**/**/core/Chart.yaml
+helm/remote-clusters/**/**/core/values.yaml
+helm/remote-clusters/**/**/core/Chart.yaml
+helm/observability-platform/**/values.yaml
+helm/observability-platform/**/Chart.yaml
+helm/remote-clusters/**/values.yaml
+helm/remote-clusters/**/Chart.yaml
+helm/customer-dashboards/**/values.yaml
+helm/customer-dashboards/**/Chart.yaml
+
+# Environment variables and secrets
+.env
+*.env
+*.env.*
+*.secret
+kubeconfig
+*.kubeconfig
+
+# ArgoCD
+.argocd-source*
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-*
+.project
+.settings/
+*.tmproj
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Local development files
+.local/
+local-*
+!alchemy-observability-core/patches/local-alerting.yaml
+.python-version
+alchemy-base/fake*-values*.yaml
+alchemy-base/helm-render-output/*
+alchemy-base/test-values-files/*
+# network-path-monitor scenario values are generated at render time by
+# .github/scripts/helm_tests/handler.py (not committed); see helm_tests/.
+network-path-monitor/fake*-values*.yaml
+network-path-monitor/test-values-files/*
+
+*.pyc
+
+.worktrees/
+
+# AI
+skills-lock.json
+.claude/
+
+docs/plans
+docs/incidents

@@ -1,0 +1,4 @@
+alchemyIPs:
+  alchemy-staging:
+    ap-northeast-1:
+    - 54.238.165.156/32

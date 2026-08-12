@@ -1,0 +1,5 @@
+alchemyIPs:
+  alchemy-main:
+    ap-southeast-1:
+    - 18.141.188.19/32
+    - 54.255.161.241/32

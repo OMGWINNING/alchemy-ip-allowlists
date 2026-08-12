@@ -1,0 +1,4 @@
+alchemyIPs:
+  ovh:
+    ca-east-bhs:
+    - 15.235.112.142/32
