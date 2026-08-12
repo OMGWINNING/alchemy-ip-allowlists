@@ -1,0 +1,5 @@
+alchemyIPs:
+  alchemy-infra-toolings:
+    us-east-1:
+    - 107.20.175.186/32
+    - 34.226.41.223/32

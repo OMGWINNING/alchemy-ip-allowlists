@@ -1,0 +1,81 @@
+# Declarative guards run against `helm template` output of every chart rendered in
+# helm-quality-checks.yaml. A guard applies to a chart if Chart.yaml's `name:`
+# equals `match_chart_name`, OR if `match_chart_dependency` appears in
+# Chart.yaml's `dependencies[].name`. Use match_chart_dependency_version to narrow
+# dependency matching to one exact version; bump exact dependency-version guards
+# in lockstep with the chart version they protect, and prefer omitting the version
+# if floating ranges should also match. Patterns are POSIX ERE (passed to `grep -E`)
+# and run after full-line `#` comments are stripped. Use forbidden_patterns to reject
+# unsafe output and required_patterns to assert expected output. Add a new guard by
+# appending an object to `guards[]` — no workflow edits required.
+
+guards:
+  - id: shard-retention-size
+    description: >-
+      SEV2 May 2026: hard-coded retentionSize: "40GiB" deleted ~28 days of
+      historical metrics on large-PVC Prometheus instances.
+    remediation: >-
+      Rely on storage.tsdb.retention.percentage (injected by the
+      prometheus-config-patcher sidecar) instead.
+    match_chart_name: alchemy-observability-shard
+    match_chart_dependency: alchemy-observability-shard
+    forbidden_patterns:
+      - "retentionSize:[[:space:]]*['\"]?[^[:space:]'\"#]"
+      - --storage\.tsdb\.retention\.size
+
+  - id: core-blackbox-probe-contract
+    description: >-
+      Core must render Blackbox Exporter plus cross-namespace Probe discovery so
+      regional Probe resources labelled shard=core are scraped.
+    remediation: >-
+      Keep prometheus-blackbox-exporter enabled, self-monitored with shard: core,
+      and keep the Prometheus Probe selectors in the rendered core chart.
+    match_chart_name: alchemy-observability-core
+    match_chart_dependency: alchemy-observability-core
+    match_chart_dependency_version: "0.0.23"
+    required_patterns:
+      - app\.kubernetes\.io/name:[[:space:]]*prometheus-blackbox-exporter
+      - "http_2xx:"
+      - "tcp_connect:"
+      - "grpc_health:"
+      - "probeSelector:"
+      - probeNamespaceSelector:[[:space:]]*\{\}
+
+  # The capacity alerts are the ones that page oncall for a Prometheus running out
+  # of CPU or memory, so the deep-dive link has to survive template edits. Only
+  # match_chart_name is set (no match_chart_dependency): the per-cluster charts
+  # under helm/ pin older published chart versions that predate this contract,
+  # and a dependency match would fail the render gate on those stale pins.
+  # Deliberately not asserted here, because a line-oriented `grep -E` cannot see
+  # YAML nesting: that dashboardUID lives under labels: rather than annotations:.
+  # The pytest suite in
+  # .github/scripts/helm_tests/integration/alchemy_observability_capacity_alerts/
+  # parses the rendered YAML and covers that half.
+  - id: core-capacity-alert-dashboard-url
+    description: >-
+      Capacity alerts on core must carry the exact prometheus-deep-dive
+      dashboard_url annotation (Core ptype, external-label cluster, 1m
+      resolution) that the Alertmanager Slack "View in Grafana" button reads.
+    remediation: >-
+      Restore the dashboard_url annotation on the four
+      observability-capacity-alerts rules in
+      alchemy-observability-core/templates/default-alerts.yaml. Without it the
+      Slack button falls through to an empty /explore pane.
+    match_chart_name: alchemy-observability-core
+    required_patterns:
+      - dashboard_url:[[:space:]]*https://grafana\.obs-public\.i\.alchemy\.com/d/observability-prometheus-deep-dive/prometheus-deep-dive\?var-ptype=prometheus-\.%2Acore\.%2A&var-cluster=\{\{ \$externalLabels\.cluster \| urlquery \}\}&var-pod=\{\{ \$labels\.pod \| urlquery \}\}&var-resolution=1m&from=now-3h&to=now
+
+  - id: agent-capacity-alert-dashboard-url
+    description: >-
+      Capacity alerts on agents must carry the exact prometheus-deep-dive
+      dashboard_url annotation (Agent ptype, external-label cluster, 1m
+      resolution) that the Alertmanager Slack "View in Grafana" button reads.
+    remediation: >-
+      Restore the dashboard_url annotation on the four
+      observability-capacity-alerts rules in
+      alchemy-observability-agent/templates/default-alerts.yaml. The Agent ptype
+      regex contains a `|`, which is not legal in a query string and must stay
+      encoded as %7C; a literal `+` would decode to a space, so it stays %2B.
+    match_chart_name: alchemy-observability-agent
+    required_patterns:
+      - dashboard_url:[[:space:]]*https://grafana\.obs-public\.i\.alchemy\.com/d/observability-prometheus-deep-dive/prometheus-deep-dive\?var-ptype=prometheus-%28istio%7Cnodegw%29-\.%2B&var-cluster=\{\{ \$externalLabels\.cluster \| urlquery \}\}&var-pod=\{\{ \$labels\.pod \| urlquery \}\}&var-resolution=1m&from=now-3h&to=now

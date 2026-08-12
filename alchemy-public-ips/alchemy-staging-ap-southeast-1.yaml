@@ -1,0 +1,5 @@
+alchemyIPs:
+  alchemy-staging:
+    ap-southeast-1:
+    - 13.212.115.66/32
+    - 13.250.23.23/32

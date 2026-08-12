@@ -1,0 +1,55 @@
+name: Auto Approve IP Allowlist PR
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  auto-approve-ip-allowlist:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Author and PR Format
+        id: check_pr
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+            const title = pr.title;
+
+            // Check if opened by alchemy-bot
+            const isAlchemyBot = author === "alchemy-bot";
+            core.info(`Author check: ${author} (alchemy-bot: ${isAlchemyBot})`);
+
+            // Check if PR title matches [allowlist/ip] format
+            const ipAllowlistPattern = /^\[allowlist\/ip\]\s+.+/;
+            const matchesFormat = ipAllowlistPattern.test(title);
+            core.info(`Format check: title="${title}" (matches: ${matchesFormat})`);
+
+            const shouldApprove = isAlchemyBot && matchesFormat;
+            core.setOutput("approve", shouldApprove);
+
+      - name: Auto Approve PR
+        if: steps.check_pr.outputs.approve == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          github-token: ${{ secrets.GH_ALCHEMY_BOT_PAT }}
+          script: |
+            try {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                event: "APPROVE",
+              });
+            } catch (error) {
+              core.setFailed(`Failed to approve PR: ${error.message}`);
+            }
