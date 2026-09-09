@@ -1,5 +1,4 @@
 alchemyIPs:
   alchemy-staging:
     eu-central-1:
-    - 18.199.237.61/32
     - 63.185.183.158/32
