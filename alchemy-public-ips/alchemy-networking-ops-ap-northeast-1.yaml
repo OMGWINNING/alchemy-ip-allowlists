@@ -1,0 +1,6 @@
+alchemyIPs:
+  alchemy-networking-ops:
+    ap-northeast-1:
+    - 13.113.132.225/32
+    - 18.182.195.218/32
+    - 54.238.195.114/32
